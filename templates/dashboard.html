@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Webhook Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #7f8c8d;
+            font-size: 16px;
+        }
+        
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            background: #27ae60;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(39, 174, 96, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); }
+        }
+        
+        .last-updated {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+        
+        .activity-feed {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .activity-header {
+            background: #3498db;
+            color: white;
+            padding: 15px 20px;
+            font-weight: 600;
+            font-size: 18px;
+        }
+        
+        .activity-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .activity-item {
+            padding: 20px;
+            border-bottom: 1px solid #ecf0f1;
+            transition: background 0.3s ease;
+        }
+        
+        .activity-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+        
+        .activity-message {
+            font-size: 16px;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        
+        .activity-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .activity-type {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .activity-type.push {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .activity-type.pull-request {
+            background: #f39c12;
+            color: white;
+        }
+        
+        .activity-type.merge {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .repository {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #7f8c8d;
+        }
+        
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>GitHub Webhook Dashboard</h1>
+            <p>Real-time repository activity monitoring</p>
+        </div>
+        
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <span>Live Updates Active</span>
+            </div>
+            <div class="last-updated">
+                Last updated: <span id="last-updated-time">Loading...</span>
+            </div>
+        </div>
+        
+        <div class="activity-feed">
+            <div class="activity-header">
+                Recent Repository Activity
+            </div>
+            <div class="activity-list" id="activity-list">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Loading webhook data...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let lastUpdateTime = new Date();
+        
+        function updateLastUpdatedTime() {
+            const now = new Date();
+            document.getElementById('last-updated-time').textContent = now.toLocaleTimeString();
+        }
+        
+        function fetchWebhooks() {
+            fetch('/api/webhooks?limit=50')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        displayWebhooks(data.data);
+                        updateLastUpdatedTime();
+                    } else {
+                        showError('Failed to fetch webhooks');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching webhooks:', error);
+                    showError('Connection error');
+                });
+        }
+        
+        function displayWebhooks(webhooks) {
+            const activityList = document.getElementById('activity-list');
+            
+            if (webhooks.length === 0) {
+                activityList.innerHTML = `
+                    <div class="empty-state">
+                        <div>📡</div>
+                        <h3>No webhook activity yet</h3>
+                        <p>Waiting for GitHub webhook events...</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            activityList.innerHTML = webhooks.map(webhook => `
+                <div class="activity-item">
+                    <div class="activity-message">${webhook.message}</div>
+                    <div class="activity-meta">
+                        <span class="activity-type ${webhook.action.toLowerCase().replace('_', '-')}">${webhook.action}</span>
+                        <span class="repository">${webhook.repository}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function showError(message) {
+            const activityList = document.getElementById('activity-list');
+            activityList.innerHTML = `
+                <div class="empty-state">
+                    <div>⚠️</div>
+                    <h3>Error</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+        
+        // Initial load
+        fetchWebhooks();
+        updateLastUpdatedTime();
+        
+        // Poll every 15 seconds as specified in PDF
+        setInterval(fetchWebhooks, 15000);
+        
+        // Update the "last updated" time every second
+        setInterval(updateLastUpdatedTime, 1000);
+    </script>
+</body>
+</html>
