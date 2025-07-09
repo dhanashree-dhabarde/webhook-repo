@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Webhook Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-icon {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #667eea;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .webhook-feed {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .feed-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .feed-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #22c55e;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background: #22c55e;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .webhook-item {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .webhook-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+
+        .webhook-item.push {
+            border-left-color: #22c55e;
+        }
+
+        .webhook-item.pull_request {
+            border-left-color: #3b82f6;
+        }
+
+        .webhook-item.merge {
+            border-left-color: #8b5cf6;
+        }
+
+        .webhook-message {
+            font-size: 1.1rem;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .webhook-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .webhook-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .badge-push {
+            background: rgba(34, 197, 94, 0.1);
+            color: #22c55e;
+        }
+
+        .badge-pull-request {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+        }
+
+        .badge-merge {
+            background: rgba(139, 92, 246, 0.1);
+            color: #8b5cf6;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: #ccc;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+
+        .loading i {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+        }
+
+        .config-section {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .config-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+
+        .endpoint-url {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            color: #495057;
+            word-break: break-all;
+            margin: 1rem 0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .webhook-meta {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1><i class="fas fa-code-branch"></i> GitHub Webhook Dashboard</h1>
+            <p>Real-time monitoring of GitHub repository events</p>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-paper-plane"></i>
+                </div>
+                <div class="stat-value" id="totalWebhooks">0</div>
+                <div class="stat-label">Total Webhooks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-calendar-day"></i>
+                </div>
+                <div class="stat-value" id="todayWebhooks">0</div>
+                <div class="stat-label">Today's Events</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-code-branch"></i>
+                </div>
+                <div class="stat-value" id="pushCount">0</div>
+                <div class="stat-label">Push Events</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-code-merge"></i>
+                </div>
+                <div class="stat-value" id="mergeCount">0</div>
+                <div class="stat-label">Merge Events</div>
+            </div>
+        </div>
+
+        <!-- Configuration Section -->
+        <div class="config-section">
+            <h2 class="config-title">Webhook Configuration</h2>
+            <p>Configure your GitHub repository to send webhooks to this endpoint:</p>
+            <div class="endpoint-url">
+                POST http://localhost:5000/webhook/receiver
+            </div>
+            <p><strong>Content-Type:</strong> application/json</p>
+            <p><strong>Events:</strong> Push, Pull Request, Merge</p>
+        </div>
+
+        <!-- Webhook Feed -->
+        <div class="webhook-feed">
+            <div class="feed-header">
+                <h2 class="feed-title">Live Webhook Feed</h2>
+                <div class="status-indicator">
+                    <div class="status-dot"></div>
+                    <span>Auto-refreshing every 15s</span>
+                </div>
+            </div>
+            <div id="webhookFeed">
+                <div class="loading">
+                    <i class="fas fa-spinner"></i>
+                    <p>Loading webhook data...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>GitHub Webhook Dashboard - Flask Backend with MongoDB Integration</p>
+        <p>Last updated: <span id="lastUpdated">Never</span></p>
+    </div>
+
+    <script>
+        let lastUpdateTime = null;
+        let webhookData = [];
+
+        // Fetch webhook data from API
+        async function fetchWebhookData() {
+            try {
+                const response = await fetch('/api/webhooks?limit=20');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    webhookData = data.data;
+                    updateWebhookFeed();
+                    lastUpdateTime = new Date();
+                    document.getElementById('lastUpdated').textContent = lastUpdateTime.toLocaleTimeString();
+                }
+            } catch (error) {
+                console.error('Error fetching webhook data:', error);
+                showError('Failed to fetch webhook data');
+            }
+        }
+
+        // Fetch statistics
+        async function fetchStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const stats = data.data;
+                    document.getElementById('totalWebhooks').textContent = stats.total_webhooks;
+                    document.getElementById('todayWebhooks').textContent = stats.today_webhooks;
+                    
+                    // Update action counts
+                    const actionCounts = stats.action_counts.reduce((acc, item) => {
+                        acc[item._id] = item.count;
+                        return acc;
+                    }, {});
+                    
+                    document.getElementById('pushCount').textContent = actionCounts.PUSH || 0;
+                    document.getElementById('mergeCount').textContent = actionCounts.MERGE || 0;
+                }
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+            }
+        }
+
+        // Update webhook feed display
+        function updateWebhookFeed() {
+            const feedContainer = document.getElementById('webhookFeed');
+            
+            if (webhookData.length === 0) {
+                feedContainer.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-inbox"></i>
+                        <h3>No webhooks received yet</h3>
+                        <p>Configure your GitHub repository to start receiving webhook events</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const feedHTML = webhookData.map(webhook => {
+                const actionClass = webhook.action.toLowerCase();
+                const badgeClass = actionClass === 'pull_request' ? 'badge-pull-request' : 
+                                  actionClass === 'merge' ? 'badge-merge' : 'badge-push';
+                
+                return `
+                    <div class="webhook-item ${actionClass}">
+                        <div class="webhook-message">${webhook.message}</div>
+                        <div class="webhook-meta">
+                            <span class="webhook-badge ${badgeClass}">${webhook.action}</span>
+                            <span>${webhook.repository}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            feedContainer.innerHTML = feedHTML;
+        }
+
+        // Show error message
+        function showError(message) {
+            const feedContainer = document.getElementById('webhookFeed');
+            feedContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h3>Error</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        // Initialize and start polling
+        function initialize() {
+            fetchWebhookData();
+            fetchStats();
+            
+            // Poll every 15 seconds
+            setInterval(() => {
+                fetchWebhookData();
+                fetchStats();
+            }, 15000);
+        }
+
+        // Start the application
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>
