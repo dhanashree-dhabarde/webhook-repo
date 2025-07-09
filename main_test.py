@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify, render_template
-from flask_pymongo import PyMongo
 from datetime import datetime
 import json
 import os
@@ -11,22 +10,8 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# MongoDB Configuration
-app.config["MONGO_URI"] = os.getenv("MONGO_URI", "mongodb+srv://dhanashreedhabarde:CdCu769MzMTPwX0y@cluster0.n9xx0xa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-mongo = PyMongo(app)
-
-# MongoDB Collections (initialize after app context)
-webhook_collection = None
-
-def get_webhook_collection():
-    global webhook_collection
-    try:
-        if webhook_collection is None:
-            webhook_collection = mongo.db.webhooks
-        return webhook_collection
-    except Exception as e:
-        print(f"MongoDB connection error: {e}")
-        return None
+# In-memory storage for testing (replace with MongoDB in production)
+webhook_data = []
 
 def parse_github_webhook(payload, headers):
     """Parse GitHub webhook payload and extract relevant information"""
@@ -111,19 +96,13 @@ def webhook_receiver():
         parsed_data = parse_github_webhook(payload, headers)
         
         if parsed_data:
-            # Store in MongoDB
-            collection = get_webhook_collection()
-            if collection is None:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Database connection failed'
-                }), 500
-            result = collection.insert_one(parsed_data)
+            # Store in memory (replace with MongoDB in production)
+            webhook_data.append(parsed_data)
             
             return jsonify({
                 'status': 'success',
                 'message': 'Webhook received and processed',
-                'id': str(result.inserted_id),
+                'id': str(len(webhook_data)),
                 'action': parsed_data['action']
             }), 200
         else:
@@ -152,18 +131,9 @@ def get_webhooks():
         limit = int(request.args.get('limit', 50))
         offset = int(request.args.get('offset', 0))
         
-        # Fetch webhooks from MongoDB (sorted by timestamp, most recent first)
-        collection = get_webhook_collection()
-        if collection is None:
-            return jsonify({
-                'status': 'error',
-                'message': 'Database connection failed'
-            }), 500
-        
-        webhooks = list(collection.find()
-                       .sort('timestamp', -1)
-                       .skip(offset)
-                       .limit(limit))
+        # Get webhooks from memory (sorted by timestamp, most recent first)
+        sorted_webhooks = sorted(webhook_data, key=lambda x: x['timestamp'], reverse=True)
+        webhooks = sorted_webhooks[offset:offset+limit]
         
         # Format webhooks for UI
         formatted_webhooks = []
@@ -192,7 +162,7 @@ def get_webhooks():
                 message = f"{webhook['author']} performed {webhook['action']} on {timestamp}"
             
             formatted_webhooks.append({
-                'id': str(webhook['_id']),
+                'id': str(webhook_data.index(webhook)),
                 'action': webhook['action'],
                 'message': message,
                 'author': webhook['author'],
@@ -220,33 +190,26 @@ def get_webhooks():
 def get_stats():
     """API endpoint to get webhook statistics"""
     try:
-        collection = get_webhook_collection()
-        if collection is None:
-            return jsonify({
-                'status': 'error',
-                'message': 'Database connection failed'
-            }), 500
-        
-        total_webhooks = collection.count_documents({})
+        total_webhooks = len(webhook_data)
         
         # Get today's webhooks
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_webhooks = collection.count_documents({
-            'timestamp': {'$gte': today_start}
-        })
+        today_webhooks = len([w for w in webhook_data if w['timestamp'] >= today_start])
         
         # Get action counts
-        pipeline = [
-            {'$group': {'_id': '$action', 'count': {'$sum': 1}}}
-        ]
-        action_counts = list(collection.aggregate(pipeline))
+        action_counts = {}
+        for webhook in webhook_data:
+            action = webhook['action']
+            action_counts[action] = action_counts.get(action, 0) + 1
+        
+        action_counts_formatted = [{'_id': action, 'count': count} for action, count in action_counts.items()]
         
         return jsonify({
             'status': 'success',
             'data': {
                 'total_webhooks': total_webhooks,
                 'today_webhooks': today_webhooks,
-                'action_counts': action_counts
+                'action_counts': action_counts_formatted
             }
         })
     

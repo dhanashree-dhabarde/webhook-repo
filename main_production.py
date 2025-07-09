@@ -5,27 +5,42 @@ import json
 import os
 from werkzeug.exceptions import BadRequest
 from dotenv import load_dotenv
+import logging
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # MongoDB Configuration
 app.config["MONGO_URI"] = os.getenv("MONGO_URI", "mongodb+srv://dhanashreedhabarde:CdCu769MzMTPwX0y@cluster0.n9xx0xa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-mongo = PyMongo(app)
 
-# MongoDB Collections (initialize after app context)
-webhook_collection = None
+# Initialize MongoDB with error handling
+mongo = None
+try:
+    mongo = PyMongo(app)
+    logger.info("MongoDB initialized successfully")
+except Exception as e:
+    logger.error(f"MongoDB initialization failed: {e}")
+    mongo = None
+
+# In-memory fallback storage
+webhook_data = []
 
 def get_webhook_collection():
-    global webhook_collection
+    """Get MongoDB collection or return None if not available"""
     try:
-        if webhook_collection is None:
-            webhook_collection = mongo.db.webhooks
-        return webhook_collection
+        if mongo and mongo.db:
+            return mongo.db.webhooks
+        else:
+            logger.warning("MongoDB not available, using in-memory storage")
+            return None
     except Exception as e:
-        print(f"MongoDB connection error: {e}")
+        logger.error(f"MongoDB connection error: {e}")
         return None
 
 def parse_github_webhook(payload, headers):
@@ -86,7 +101,7 @@ def parse_github_webhook(payload, headers):
             }
     
     except Exception as e:
-        print(f"Error parsing webhook: {e}")
+        logger.error(f"Error parsing webhook: {e}")
         return None
 
 @app.route('/')
@@ -100,6 +115,7 @@ def webhook_receiver():
     try:
         # Get headers
         headers = dict(request.headers)
+        logger.info(f"Received webhook with headers: {headers}")
         
         # Get payload
         if request.is_json:
@@ -107,23 +123,32 @@ def webhook_receiver():
         else:
             payload = request.form.to_dict()
         
+        logger.info(f"Webhook payload: {payload}")
+        
         # Parse the webhook
         parsed_data = parse_github_webhook(payload, headers)
         
         if parsed_data:
-            # Store in MongoDB
+            # Try to store in MongoDB first, fallback to memory
             collection = get_webhook_collection()
-            if collection is None:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Database connection failed'
-                }), 500
-            result = collection.insert_one(parsed_data)
+            if collection is not None:
+                try:
+                    result = collection.insert_one(parsed_data)
+                    logger.info(f"Stored webhook in MongoDB: {result.inserted_id}")
+                except Exception as e:
+                    logger.error(f"MongoDB storage failed: {e}")
+                    # Fallback to in-memory storage
+                    webhook_data.append(parsed_data)
+                    logger.info("Stored webhook in memory as fallback")
+            else:
+                # Store in memory
+                webhook_data.append(parsed_data)
+                logger.info("Stored webhook in memory")
             
             return jsonify({
                 'status': 'success',
                 'message': 'Webhook received and processed',
-                'id': str(result.inserted_id),
+                'id': str(len(webhook_data)),
                 'action': parsed_data['action']
             }), 200
         else:
@@ -138,10 +163,10 @@ def webhook_receiver():
             'message': 'Invalid JSON payload'
         }), 400
     except Exception as e:
-        print(f"Error processing webhook: {e}")
+        logger.error(f"Error processing webhook: {e}")
         return jsonify({
             'status': 'error',
-            'message': 'Internal server error'
+            'message': f'Internal server error: {str(e)}'
         }), 500
 
 @app.route('/api/webhooks', methods=['GET'])
@@ -152,18 +177,23 @@ def get_webhooks():
         limit = int(request.args.get('limit', 50))
         offset = int(request.args.get('offset', 0))
         
-        # Fetch webhooks from MongoDB (sorted by timestamp, most recent first)
+        # Try MongoDB first, fallback to memory
         collection = get_webhook_collection()
-        if collection is None:
-            return jsonify({
-                'status': 'error',
-                'message': 'Database connection failed'
-            }), 500
-        
-        webhooks = list(collection.find()
-                       .sort('timestamp', -1)
-                       .skip(offset)
-                       .limit(limit))
+        if collection is not None:
+            try:
+                webhooks = list(collection.find()
+                               .sort('timestamp', -1)
+                               .skip(offset)
+                               .limit(limit))
+            except Exception as e:
+                logger.error(f"MongoDB query failed: {e}")
+                # Fallback to in-memory data
+                sorted_webhooks = sorted(webhook_data, key=lambda x: x['timestamp'], reverse=True)
+                webhooks = sorted_webhooks[offset:offset+limit]
+        else:
+            # Use in-memory data
+            sorted_webhooks = sorted(webhook_data, key=lambda x: x['timestamp'], reverse=True)
+            webhooks = sorted_webhooks[offset:offset+limit]
         
         # Format webhooks for UI
         formatted_webhooks = []
@@ -192,7 +222,7 @@ def get_webhooks():
                 message = f"{webhook['author']} performed {webhook['action']} on {timestamp}"
             
             formatted_webhooks.append({
-                'id': str(webhook['_id']),
+                'id': str(webhook.get('_id', len(webhook_data))),
                 'action': webhook['action'],
                 'message': message,
                 'author': webhook['author'],
@@ -210,36 +240,58 @@ def get_webhooks():
         })
     
     except Exception as e:
-        print(f"Error fetching webhooks: {e}")
+        logger.error(f"Error fetching webhooks: {e}")
         return jsonify({
             'status': 'error',
-            'message': 'Failed to fetch webhooks'
+            'message': f'Failed to fetch webhooks: {str(e)}'
         }), 500
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     """API endpoint to get webhook statistics"""
     try:
+        # Try MongoDB first, fallback to memory
         collection = get_webhook_collection()
-        if collection is None:
-            return jsonify({
-                'status': 'error',
-                'message': 'Database connection failed'
-            }), 500
-        
-        total_webhooks = collection.count_documents({})
-        
-        # Get today's webhooks
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_webhooks = collection.count_documents({
-            'timestamp': {'$gte': today_start}
-        })
-        
-        # Get action counts
-        pipeline = [
-            {'$group': {'_id': '$action', 'count': {'$sum': 1}}}
-        ]
-        action_counts = list(collection.aggregate(pipeline))
+        if collection is not None:
+            try:
+                total_webhooks = collection.count_documents({})
+                
+                # Get today's webhooks
+                today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                today_webhooks = collection.count_documents({
+                    'timestamp': {'$gte': today_start}
+                })
+                
+                # Get action counts
+                pipeline = [
+                    {'$group': {'_id': '$action', 'count': {'$sum': 1}}}
+                ]
+                action_counts = list(collection.aggregate(pipeline))
+            except Exception as e:
+                logger.error(f"MongoDB stats query failed: {e}")
+                # Fallback to in-memory data
+                total_webhooks = len(webhook_data)
+                today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                today_webhooks = len([w for w in webhook_data if w['timestamp'] >= today_start])
+                
+                action_counts = {}
+                for webhook in webhook_data:
+                    action = webhook['action']
+                    action_counts[action] = action_counts.get(action, 0) + 1
+                
+                action_counts = [{'_id': action, 'count': count} for action, count in action_counts.items()]
+        else:
+            # Use in-memory data
+            total_webhooks = len(webhook_data)
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_webhooks = len([w for w in webhook_data if w['timestamp'] >= today_start])
+            
+            action_counts = {}
+            for webhook in webhook_data:
+                action = webhook['action']
+                action_counts[action] = action_counts.get(action, 0) + 1
+            
+            action_counts = [{'_id': action, 'count': count} for action, count in action_counts.items()]
         
         return jsonify({
             'status': 'success',
@@ -251,10 +303,10 @@ def get_stats():
         })
     
     except Exception as e:
-        print(f"Error fetching stats: {e}")
+        logger.error(f"Error fetching stats: {e}")
         return jsonify({
             'status': 'error',
-            'message': 'Failed to fetch statistics'
+            'message': f'Failed to fetch statistics: {str(e)}'
         }), 500
 
 @app.route('/health', methods=['GET'])
@@ -263,8 +315,10 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.utcnow().isoformat(),
-        'service': 'webhook-receiver'
+        'service': 'webhook-receiver',
+        'mongodb_status': 'connected' if mongo else 'disconnected'
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)

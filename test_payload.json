@@ -1,0 +1,15 @@
+{
+  "ref": "refs/heads/main",
+  "pusher": {
+    "name": "testuser"
+  },
+  "repository": {
+    "full_name": "testuser/test-repo"
+  },
+  "commits": [
+    {
+      "id": "abc123",
+      "message": "Test commit"
+    }
+  ]
+}
