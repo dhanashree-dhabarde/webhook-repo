@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GitHub Event Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 30px;
+            background: #f9f9f9;
+        }
+        h1 {
+            font-size: 24px;
+            color: #000000;
+        }
+        ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        li {
+            background: white;
+            margin: 10px 0;
+            padding: 10px 15px;
+            border-radius: 6px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.05);
+        }
+    </style>
+</head>
+<body>
+    <h1>Recent GitHub Events</h1>
+    <ul id="eventList">
+        <!-- JS will put events here -->
+    </ul>
+
+    <script>
+        async function fetchEvents() {
+            const res = await fetch('/events');
+            const events = await res.json();
+            const list = document.getElementById('eventList');
+            list.innerHTML = '';
+            events.forEach(event => {
+                const li = document.createElement('li');
+                if (event.event_type === 'push') {
+                    li.textContent = `${event.author} pushed to ${event.to_branch} on ${new Date(event.timestamp).toUTCString()}`;
+                } else if (event.event_type === 'pull_request') {
+                    li.textContent = `${event.author} submitted a pull request from ${event.from_branch} to ${event.to_branch} on ${new Date(event.timestamp).toUTCString()}`;
+                } else if (event.event_type === 'merge') {
+                    li.textContent = `${event.author} merged branch ${event.from_branch} to ${event.to_branch} on ${new Date(event.timestamp).toUTCString()}`;
+                }
+                list.appendChild(li);
+            });
+        }
+
+        setInterval(fetchEvents, 15000); // poll every 15 seconds
+        fetchEvents();
+    </script>
+</body>
+</html>
